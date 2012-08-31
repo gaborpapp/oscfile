@@ -1,0 +1,19 @@
+#!/bin/bash
+
+case "$1" in
+  --record)
+		oscrec ${*:2}
+    ;;
+  -r)
+		oscrec ${*:2}
+    ;;
+  --play)
+		oscplay ${*:2}
+    ;;
+  -p)
+		oscplay ${*:2}
+    ;;
+  *)
+    echo "usage: $0 -r|--record|-p|--play OPTIONS"
+		echo ""
+esac
