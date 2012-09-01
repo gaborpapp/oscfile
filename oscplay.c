@@ -161,7 +161,7 @@ main (int argc, char **argv)
 	}
 
 	while (lo_server_thread_events_pending (servT))
-		;
+		usleep (10);
 
 	lo_server_thread_stop (servT);
 	lo_server_thread_free (servT);

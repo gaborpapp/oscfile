@@ -59,7 +59,6 @@ _handler (const char *path, const char *types, lo_arg **argv, int argc, lo_messa
 	bundle = lo_bundle_new (now);
 	lo_bundle_add_message (bundle, path, msg);
 	buf = lo_bundle_serialise (bundle, NULL, &size);
-	//lo_bundle_free_messages (bundle);
 	lo_bundle_free (bundle);
 
 	fwrite (buf, size, sizeof (uint8_t), file);
