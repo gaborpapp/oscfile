@@ -26,11 +26,24 @@
 #include <getopt.h>
 #include <string.h>
 #include <stdint.h>
+#include <time.h>
+#include <math.h>
 
 #include <lo/lo.h>
 #include <lo/lo_lowlevel.h>
 
 const uint32_t MAX_FRAC = 0xffffffff;
+#define BLOCK 1 // second
+
+const struct timespec block = {
+	.tv_sec = BLOCK,
+	.tv_nsec = 0
+};
+
+const struct timespec _10mu = {
+	.tv_sec = 0,
+	.tv_nsec = 1e4
+};
 
 static void
 _error (int num, const char *msg, const char *where)
@@ -158,10 +171,22 @@ main (int argc, char **argv)
 		read = fread (&buf[20], 1, size, file);
 
 		lo_server_dispatch_data (serv, buf, 20+size);
+
+		lo_timetag now;
+		lo_timetag_now (&now);
+
+		double diff = lo_timetag_diff (tt, now);
+
+		/* 
+		 * when the message just sent now is dispatched after 2*BLOCK seconds,
+		 * wait BLOCK seconds before dispatching further messages (less memory and CPU peaks)
+		 */
+		if (diff > 2*BLOCK)
+			nanosleep (&block, NULL);
 	}
 
 	while (lo_server_thread_events_pending (servT))
-		usleep (10);
+		nanosleep (&_10mu, NULL);
 
 	lo_server_thread_stop (servT);
 	lo_server_thread_free (servT);

@@ -30,6 +30,11 @@
 #include <lo/lo.h>
 #include <lo/lo_lowlevel.h>
 
+const struct timespec _10mu = {
+	.tv_sec = 0,
+	.tv_nsec = 1e4
+};
+
 volatile done = 0;
 
 static void
@@ -124,7 +129,7 @@ main (int argc, char **argv)
 	signal (SIGINT, _quit);
 
 	while (!done)
-		usleep (10);
+		nanosleep (&_10mu, NULL);
 
 	fprintf (stderr, "cleaning up\n");
 

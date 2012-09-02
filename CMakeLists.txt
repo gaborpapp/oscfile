@@ -7,6 +7,8 @@ set (OSCFILE_VERSION "0.1.0")
 # pkg-config
 find_package (PkgConfig) # ${PKG_CONFIG_FOUND}
 
+set (LIBS "")
+
 # liblo
 pkg_search_module (LIBLO REQUIRED liblo)
 include_directories (${LIBLO_INCLUDE_DIRS})
