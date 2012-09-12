@@ -7,12 +7,12 @@ set (OSCFILE_VERSION "0.1.0")
 # pkg-config
 find_package (PkgConfig) # ${PKG_CONFIG_FOUND}
 
-set (LIBS "")
+set (LIBS "-lm")
 
 # liblo
 pkg_search_module (LIBLO REQUIRED liblo)
 include_directories (${LIBLO_INCLUDE_DIRS})
-set (LIBS ${LIBLO_LDFLAGS})
+set (LIBS ${LIBS} ${LIBLO_LDFLAGS})
 
 # oscrec
 add_executable (oscrec oscrec.c)

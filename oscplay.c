@@ -32,15 +32,7 @@
 #include <lo/lo.h>
 #include <lo/lo_lowlevel.h>
 
-const uint32_t MAX_FRAC = 0xffffffff;
-#define BLOCK 1 // second
-
-const struct timespec block = {
-	.tv_sec = BLOCK,
-	.tv_nsec = 0
-};
-
-const struct timespec _10mu = {
+struct timespec clk_step = {
 	.tv_sec = 0,
 	.tv_nsec = 1e4
 };
@@ -51,24 +43,12 @@ _error (int num, const char *msg, const char *where)
 	fprintf (stderr, "lo server error #%i '%s' at %s\n", num, msg, where);
 }
 
-static int
-_handler (const char *path, const char *types, lo_arg **argv, int argc, lo_message msg, void *data)
-{
-	lo_address addr = data;
-
-	lo_send_message (addr, path, msg);
-
-	return 0;
-}
-
 int
 main (int argc, char **argv)
 {
-	lo_server serv = NULL;
-	lo_server_thread servT = NULL;
 	lo_address addr = NULL;
 	FILE *file = NULL;
-	double delay = 0;
+	double delay = 0.0;
 
 	int c;
 	while ( (c = getopt (argc, argv, "d:i:o:")) != -1)
@@ -109,13 +89,9 @@ main (int argc, char **argv)
 		return (1);
 	}
 
-	servT = lo_server_thread_new_with_proto (NULL, LO_UDP, _error);
-	serv = lo_server_thread_get_server (servT);
-	lo_server_thread_add_method (servT, NULL, NULL, _handler, addr);
-	lo_server_thread_start (servT);
-
 	int first = 1;
 	lo_timetag offset;
+	lo_timetag last = LO_TT_IMMEDIATE;
 
 	uint8_t buf[1024];
 
@@ -135,6 +111,8 @@ main (int argc, char **argv)
 		tt.sec = lo_otoh32 (tt.sec);
 		tt.frac = lo_otoh32 (tt.frac);
 
+		//printf ("%x:%x\n", tt.sec, tt.frac);
+
 		if (first)
 		{
 			lo_timetag_now (&offset);
@@ -145,14 +123,16 @@ main (int argc, char **argv)
 
 			if (delay > 0.0)
 			{
-				uint32_t dsec = delay;
-				uint32_t dfrac = (delay - dsec) * MAX_FRAC;
+				uint32_t dsec = floor (delay);
+				uint32_t dfrac = (delay - dsec) * 0xffffffff;
 
 				offset.sec += dsec;
 				if (offset.frac + dfrac < offset.frac)
 					offset.sec += 1;
 				offset.frac += dfrac;
 			}
+
+			printf ("offset is %x:%x\n", offset.sec, offset.frac);
 
 			first = 0;
 		}
@@ -161,8 +141,6 @@ main (int argc, char **argv)
 		if (tt.frac + offset.frac < tt.frac)
 			tt.sec += 1;
 		tt.frac += offset.frac;
-		tt_ptr->sec = lo_htoo32 (tt.sec);
-		tt_ptr->frac = lo_htoo32 (tt.frac);
 
 		int32_t *size_ptr = (int32_t *)&buf[16];
 		int32_t size = *size_ptr;
@@ -170,26 +148,24 @@ main (int argc, char **argv)
 
 		read = fread (&buf[20], 1, size, file);
 
-		lo_server_dispatch_data (serv, buf, 20+size);
+		char *path = lo_get_path (&buf[20], size);
+		lo_message msg = lo_message_deserialise (&buf[20], size, NULL);
+		if (!msg) // not a well formed OSC message
+			continue;
 
 		lo_timetag now;
 		lo_timetag_now (&now);
-
 		double diff = lo_timetag_diff (tt, now);
+		if (diff > 0)
+		{
+			clk_step.tv_sec = floor (diff);
+			clk_step.tv_nsec = (diff - clk_step.tv_sec) * 1e9;
+			nanosleep (&clk_step, NULL);
+		}
 
-		/* 
-		 * when the message just sent now is dispatched after 2*BLOCK seconds,
-		 * wait BLOCK seconds before dispatching further messages (less memory and CPU peaks)
-		 */
-		if (diff > 2*BLOCK)
-			nanosleep (&block, NULL);
+		lo_send_message (addr, path, msg);
+		lo_message_free (msg);
 	}
-
-	while (lo_server_thread_events_pending (servT))
-		nanosleep (&_10mu, NULL);
-
-	lo_server_thread_stop (servT);
-	lo_server_thread_free (servT);
 
 	if (file != stdin)
 		fclose (file);
