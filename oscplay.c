@@ -98,8 +98,8 @@ main (int argc, char **argv)
 	while (!feof (file))
 	{
 		size_t read;
-		read = fread (&buf[0], 1, 20, file);
-		if (read != 20)
+		read = fread (&buf[0], 1, 16, file); // read #bundle and timestamp
+		if (read != 16)
 			break;
 
 		// check whether message is a bundle
@@ -132,8 +132,6 @@ main (int argc, char **argv)
 				offset.frac += dfrac;
 			}
 
-			printf ("offset is %x:%x\n", offset.sec, offset.frac);
-
 			first = 0;
 		}
 
@@ -142,17 +140,36 @@ main (int argc, char **argv)
 			tt.sec += 1;
 		tt.frac += offset.frac;
 
-		int32_t *size_ptr = (int32_t *)&buf[16];
-		int32_t size = *size_ptr;
-		size = lo_otoh32 (size);
+		size_t ptr = 16;
+		char c;
 
-		read = fread (&buf[20], 1, size, file);
+		lo_bundle bundle = lo_bundle_new (tt);
 
-		char *path = lo_get_path (&buf[20], size);
-		lo_message msg = lo_message_deserialise (&buf[20], size, NULL);
-		if (!msg) // not a well formed OSC message
-			continue;
+		while ( (c = fgetc (file)) != '#') // while not next bundle
+		{
+			ungetc (c, file);
 
+			read = fread (&buf[ptr], 1, 4, file);
+			if (read != 4)
+				break;
+			int32_t *size_ptr = (int32_t *)&buf[ptr];
+			int32_t size = *size_ptr;
+			size = lo_otoh32 (size);
+
+			read = fread (&buf[ptr+4], 1, size, file);
+			if (read != size)
+				break;
+			char *path = lo_get_path (&buf[ptr+4], size);
+
+			lo_message msg = lo_message_deserialise (&buf[ptr+4], size, NULL);
+			lo_bundle_add_message (bundle, path, msg);
+
+			ptr += 4 + size;
+		}
+
+		ungetc (c, file);
+
+		// our own schedular
 		lo_timetag now;
 		lo_timetag_now (&now);
 		double diff = lo_timetag_diff (tt, now);
@@ -163,8 +180,11 @@ main (int argc, char **argv)
 			nanosleep (&clk_step, NULL);
 		}
 
-		lo_send_message (addr, path, msg);
-		lo_message_free (msg);
+		lo_send_bundle (addr, bundle);
+		lo_bundle_free_messages (bundle);
+
+		// we cannot send everything in one bulk, as the receiver needs time to acutally process the messages, if not, half of them will be lost, we therefore have to wait
+		//usleep (400);
 	}
 
 	if (file != stdin)

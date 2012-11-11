@@ -49,27 +49,73 @@ _error (int num, const char *msg, const char *where)
 	fprintf (stderr, "lo server error #%i '%s' at %s\n", num, msg, where);
 }
 
+int is_bundle = 0;
+lo_bundle bundle = NULL;
+
 static int
-_handler (const char *path, const char *types, lo_arg **argv, int argc, lo_message msg, void *data)
+_bundle_start_handler (lo_timetag time, void *data)
+{
+	if ( (time.sec == LO_TT_IMMEDIATE.sec) && (time.frac == LO_TT_IMMEDIATE.frac) )
+		lo_timetag_now (&time);
+
+	bundle = lo_bundle_new (time); //FIXME handle nested bundles
+	is_bundle++;
+}
+
+static int
+_bundle_end_handler (void *data)
 {
 	FILE *file = data;
 	uint8_t *buf;
 	size_t size;
-	lo_bundle bundle;
-	lo_timetag now;
 
-	now = lo_message_get_timestamp (msg);
-	if ( (now.sec == LO_TT_IMMEDIATE.sec) && (now.frac == LO_TT_IMMEDIATE.frac) )
-		lo_timetag_now (&now);
-	bundle = lo_bundle_new (now);
-	lo_bundle_add_message (bundle, path, msg);
 	buf = lo_bundle_serialise (bundle, NULL, &size);
-	lo_bundle_free (bundle);
+	lo_bundle_free_messages (bundle);
+	bundle = NULL;
+	is_bundle--;
 
 	fwrite (buf, size, sizeof (uint8_t), file);
 	fflush (file);
 
 	free (buf);
+}
+
+static int
+_msg_handler (const char *path, const char *types, lo_arg **argv, int argc, lo_message msg, void *data)
+{
+	FILE *file = data;
+	uint8_t *buf;
+	size_t size;
+	lo_timetag now;
+	lo_message _msg = msg;
+
+	if (!is_bundle)
+	{
+		lo_timetag_now (&now);
+		bundle = lo_bundle_new (now);
+	}
+
+	if (is_bundle)
+	{
+		// clone message TODO this is very inefficient, but there is no other way with the current LO API
+		buf = lo_message_serialise (msg, path, NULL, &size);
+		_msg = lo_message_deserialise (buf, size, NULL);
+		free (buf);
+	}
+
+	lo_bundle_add_message (bundle, path, _msg);
+
+	if (!is_bundle)
+	{
+		buf = lo_bundle_serialise (bundle, NULL, &size);
+		lo_bundle_free (bundle);
+		bundle = NULL;
+
+		fwrite (buf, size, sizeof (uint8_t), file);
+		fflush (file);
+
+		free (buf);
+	}
 
 	return 0;
 }
@@ -120,7 +166,10 @@ main (int argc, char **argv)
 		return (1);
 	}
 
-	lo_server_thread_add_method (serv, NULL, NULL, _handler, file);
+	lo_server *_serv = lo_server_thread_get_server (serv);
+	lo_server_add_bundle_handlers (_serv, _bundle_start_handler, _bundle_end_handler, file);
+	lo_server_enable_queue (_serv, 0, 1);
+	lo_server_thread_add_method (serv, NULL, NULL, _msg_handler, file);
 	lo_server_thread_start (serv);
 
 	signal (SIGHUP, _quit);
