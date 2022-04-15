@@ -21,11 +21,13 @@
  *     distribution.
  */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
 #include <signal.h>
+#include <time.h>
 
 #include <lo/lo.h>
 #include <lo/lo_lowlevel.h>
@@ -35,7 +37,7 @@ const struct timespec _10mu = {
 	.tv_nsec = 1e4
 };
 
-volatile done = 0;
+volatile int done = 0;
 
 static void
 _quit (int signal)
